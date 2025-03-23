@@ -27,7 +27,7 @@ jobs:
         run: |
           # Find the latest tag reachable from the main branch, excluding the current commit.
           # Using --merged avoids picking up tags only on the PR branch.
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match="v*" $(git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }))^
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match="v*" $(git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}))
           echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
           echo "Previous tag: $PREVIOUS_TAG"  # Debugging
         shell: bash
