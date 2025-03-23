@@ -1,0 +1,91 @@
+name: Auto-Tag Pull Requests
+
+on:
+  pull_request_target: # Crucial for security - see explanation below
+    types: [closed]
+    branches:
+      - main  # Or your default branch name (e.g., 'master')
+
+jobs:
+  tag-pr:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Allow writing tags
+      pull-requests: read   # Allow reading PR information
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}  # Checkout *PR* commit, not main
+          fetch-depth: 0 # Fetch all history to find the base commit reliably
+
+
+      - name: Get Previous Tag
+        id: get_previous_tag
+        run: |
+          # Find the latest tag reachable from the main branch, excluding the current commit.
+          # Using --merged avoids picking up tags only on the PR branch.
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match="v*" $(git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }))^
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "Previous tag: $PREVIOUS_TAG"  # Debugging
+        shell: bash
+        continue-on-error: true # Handle the case where there are no previous tags.
+
+      - name: Set Initial Tag if None Exists
+        if: steps.get_previous_tag.outcome == 'failure'
+        id: set_initial_tag
+        run: |
+          echo "previous_tag=v0.0.0" >> $GITHUB_OUTPUT
+          echo "No previous tag found. Setting to v0.0.0" # Debugging
+        shell: bash
+
+
+      - name: Determine Version Bump (MAJOR.MINOR.PATCH)
+        id: version_bump
+        run: |
+          PREVIOUS_TAG=${{ steps.get_previous_tag.outputs.previous_tag || steps.set_initial_tag.outputs.previous_tag }}
+
+          # Extract version components
+          MAJOR=$(echo $PREVIOUS_TAG | cut -d '.' -f 1 | tr -d 'v')
+          MINOR=$(echo $PREVIOUS_TAG | cut -d '.' -f 2)
+          PATCH=$(echo $PREVIOUS_TAG | cut -d '.' -f 3)
+
+          # Get commit messages since the last tag on the *main* branch.  This is crucial.
+          # We use merge-base to find the common ancestor between the PR branch and main.
+          COMMIT_MESSAGES=$(git log --pretty=format:"%s" $(git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})^..${{ github.event.pull_request.head.sha }})
+          echo "Commit messages: $COMMIT_MESSAGES" # Debug
+
+          # Determine bump type based on commit messages.
+          BUMP_TYPE="patch"  # Default to patch
+          if [[ "$COMMIT_MESSAGES" == *"BREAKING CHANGE"* ]] || [[ "$COMMIT_MESSAGES" == *"major:"* ]]; then
+            BUMP_TYPE="major"
+          elif [[ "$COMMIT_MESSAGES" == *"feat:"* ]] || [[ "$COMMIT_MESSAGES" == *"minor:"* ]]; then
+            BUMP_TYPE="minor"
+          fi
+
+          # Increment appropriate version component
+          if [[ "$BUMP_TYPE" == "major" ]]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [[ "$BUMP_TYPE" == "minor" ]]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          elif [[ "$BUMP_TYPE" == "patch" ]]; then
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "Bumping $PREVIOUS_TAG to $NEW_TAG (type: $BUMP_TYPE)"
+        shell: bash
+
+
+      - name: Create and Push Tag
+        id: create_tag
+        run: |
+          git tag ${{ steps.version_bump.outputs.new_tag }} ${{ github.event.pull_request.head.sha }}
+          git push origin ${{ steps.version_bump.outputs.new_tag }}
+        shell: bash
