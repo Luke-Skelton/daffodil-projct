@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Luke-Skelton/daffodil_projct/internal/storage" // Import the storage interface
+	"github.com/Luke-Skelton/daffodil-projct/internal/storage" // Import the storage interface
 )
 
 func TestCollectMetrics(t *testing.T) {
